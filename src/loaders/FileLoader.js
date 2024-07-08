@@ -13,7 +13,9 @@ class HttpError extends Error {
 	}
 
 }
-
+/**
+ * 文件加载器，继承自Loader
+ */
 class FileLoader extends Loader {
 
 	constructor( manager ) {
@@ -26,21 +28,21 @@ class FileLoader extends Loader {
 
 		if ( url === undefined ) url = '';
 
-		if ( this.path !== undefined ) url = this.path + url;
+		if ( this.path !== undefined ) url = this.path + url;  //this.path一般为'',所以不会造成多次拼接
 
 		url = this.manager.resolveURL( url );
 
-		const cached = Cache.get( url );
+		const cached = Cache.get( url ); 	// 先从缓存中获取，查看是否已有该url的资源，如果没有则返回undefined
 
-		if ( cached !== undefined ) {
+		if ( cached !== undefined ) {	// 没有缓存
 
 			this.manager.itemStart( url );
 
 			setTimeout( () => {
 
-				if ( onLoad ) onLoad( cached );
+				if ( onLoad ) onLoad( cached );  // 如果有onLoad回调函数，则调用，并传入缓存的资源
 
-				this.manager.itemEnd( url );
+				this.manager.itemEnd( url );	
 
 			}, 0 );
 
@@ -48,10 +50,10 @@ class FileLoader extends Loader {
 
 		}
 
-		// Check if request is duplicate
+		// Check if request is duplicate 检查是否当前url是否正在请求中，避免重复请求
 
 		if ( loading[ url ] !== undefined ) {
-
+			// 如果有重复请求则将回调函数push到数组中，表示多一组待办事项
 			loading[ url ].push( {
 
 				onLoad: onLoad,
@@ -64,7 +66,7 @@ class FileLoader extends Loader {
 
 		}
 
-		// Initialise array for duplicate requests
+		// Initialise array for duplicate requests  如果没有重复请求，则构建一个空数组，然后加入代办事项
 		loading[ url ] = [];
 
 		loading[ url ].push( {
@@ -73,22 +75,22 @@ class FileLoader extends Loader {
 			onError: onError,
 		} );
 
-		// create request
+		// create request 创建请求
 		const req = new Request( url, {
 			headers: new Headers( this.requestHeader ),
 			credentials: this.withCredentials ? 'include' : 'same-origin',
 			// An abort controller could be added within a future PR
 		} );
 
-		// record states ( avoid data race )
+		// record states ( avoid data race ) 记录请求状态
 		const mimeType = this.mimeType;
 		const responseType = this.responseType;
 
-		// start the fetch
+		// start the fetch 开始请求
 		fetch( req )
-			.then( response => {
+			.then( response => {  // 主要用来处理HTTP状态码和相应的onProgress回调
 
-				if ( response.status === 200 || response.status === 0 ) {
+				if ( response.status === 200 || response.status === 0 ) {  //都表示请求成功
 
 					// Some browsers return HTTP Status 0 when using non-http protocol
 					// e.g. 'file://' or 'data://'. Handle as success.
@@ -99,7 +101,7 @@ class FileLoader extends Loader {
 
 					}
 
-					// Workaround: Checking if response.body === undefined for Alipay browser #23548
+					// Workaround: Checking if response.body === undefined for Alipay browser #23548  https://github.com/mrdoob/three.js/issues/23548
 
 					if ( typeof ReadableStream === 'undefined' || response.body === undefined || response.body.getReader === undefined ) {
 
@@ -112,12 +114,12 @@ class FileLoader extends Loader {
 
 					// Nginx needs X-File-Size check
 					// https://serverfault.com/questions/482875/why-does-nginx-remove-content-length-header-for-chunked-content
-					const contentLength = response.headers.get( 'X-File-Size' ) || response.headers.get( 'Content-Length' );
-					const total = contentLength ? parseInt( contentLength ) : 0;
-					const lengthComputable = total !== 0;
+					const contentLength = response.headers.get( 'X-File-Size' ) || response.headers.get( 'Content-Length' );   //获取文件大小
+					const total = contentLength ? parseInt( contentLength ) : 0;	//文件大小转换为整数
+					const lengthComputable = total !== 0;　//是否支持下载进度，取值为true或者false
 					let loaded = 0;
 
-					// periodically read data into the new stream tracking while download progress
+					// periodically read data into the new stream tracking while download progress　周期性读取数据，并追踪下载进度
 					const stream = new ReadableStream( {
 						start( controller ) {
 
@@ -129,13 +131,15 @@ class FileLoader extends Loader {
 
 									if ( done ) {
 
-										controller.close();
+										controller.close();　//如果读取完成，则关闭请求
 
 									} else {
 
-										loaded += value.byteLength;
+										loaded += value.byteLength;　//更新下载进度
 
 										const event = new ProgressEvent( 'progress', { lengthComputable, loaded, total } );
+
+										// 循环执行所有的onProgress回调，把加载的进度传入
 										for ( let i = 0, il = callbacks.length; i < il; i ++ ) {
 
 											const callback = callbacks[ i ];
@@ -143,7 +147,7 @@ class FileLoader extends Loader {
 
 										}
 
-										controller.enqueue( value );
+										controller.enqueue( value ); //将读取到的数据追加到请求中
 										readData();
 
 									}
@@ -160,7 +164,7 @@ class FileLoader extends Loader {
 
 					} );
 
-					return new Response( stream );
+					return new Response( stream ); //返回一个响应对象
 
 				} else {
 
@@ -169,7 +173,7 @@ class FileLoader extends Loader {
 				}
 
 			} )
-			.then( response => {
+			.then( response => {  // 主要用来处理不同responseType的文件  
 
 				switch ( responseType ) {
 
@@ -197,13 +201,13 @@ class FileLoader extends Loader {
 
 					default:
 
-						if ( mimeType === undefined ) {
+						if ( mimeType === undefined ) {	// 未定义类型，则默认返回text
 
 							return response.text();
 
 						} else {
-
-							// sniff encoding
+							// 如果没有定义mimeType，则从二进制 data 中找到其编码
+							// sniff encoding 
 							const re = /charset="?([^;"\s]*)"?/i;
 							const exec = re.exec( mimeType );
 							const label = exec && exec[ 1 ] ? exec[ 1 ].toLowerCase() : undefined;
@@ -215,15 +219,17 @@ class FileLoader extends Loader {
 				}
 
 			} )
-			.then( data => {
+			.then( data => {	// 主要用来将成功的请求数据加到缓存中，以便后续使用
 
 				// Add to cache only on HTTP success, so that we do not cache
 				// error response bodies as proper responses to requests.
+				// 只在 HTTP 成功时添加到缓存，以避免将错误响应体视为针对请求的正确响应。
 				Cache.add( url, data );
 
 				const callbacks = loading[ url ];
 				delete loading[ url ];
 
+				// 循环遍历调用所有的onLoad回调
 				for ( let i = 0, il = callbacks.length; i < il; i ++ ) {
 
 					const callback = callbacks[ i ];
@@ -232,13 +238,13 @@ class FileLoader extends Loader {
 				}
 
 			} )
-			.catch( err => {
+			.catch( err => {   //异常情况的处理
 
 				// Abort errors and other errors are handled the same
 
 				const callbacks = loading[ url ];
 
-				if ( callbacks === undefined ) {
+				if ( callbacks === undefined ) {   //如果没有onError回调，则直接抛出 Error即可
 
 					// When onLoad was called and url was deleted in `loading`
 					this.manager.itemError( url );
@@ -246,8 +252,10 @@ class FileLoader extends Loader {
 
 				}
 
+				// 删除当前的请求
 				delete loading[ url ];
 
+				// 循环遍历调用所有的onError回调
 				for ( let i = 0, il = callbacks.length; i < il; i ++ ) {
 
 					const callback = callbacks[ i ];
@@ -258,7 +266,7 @@ class FileLoader extends Loader {
 				this.manager.itemError( url );
 
 			} )
-			.finally( () => {
+			.finally( () => {	// 无论成功与否都会调用，最后将该url的加载停止掉。
 
 				this.manager.itemEnd( url );
 

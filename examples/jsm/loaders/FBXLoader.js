@@ -66,6 +66,7 @@ let fbxTree;
 let connections;
 let sceneGraph;
 
+// XXX: FBXLoader中只有load和parse两个函数，用来加载并解析FBX。它是继承了Loader方法，自带manager、path、requestHeader、withCredentials等属性
 class FBXLoader extends Loader {
 
 	constructor( manager ) {
@@ -73,32 +74,43 @@ class FBXLoader extends Loader {
 		super( manager );
 
 	}
-
+	/**
+	 *  Only supports ASCII FBX format
+	 * //XXX:load是对FileLoader的封装,内部调用了FileLoader.load方法，本质是调用了fetch。所以onLoad、onProgress、onError都是fetch的回调，它是一个异步的方法。
+	 * @param {*} url 
+	 * @param {*} onLoad 
+	 * @param {*} onProgress 
+	 * @param {*} onError 
+	 */
 	load( url, onLoad, onProgress, onError ) {
 
 		const scope = this;
 
+		// LoaderUtils.extractUrlBase( url )是将url中的路径部分提取出来。如果url中没有路径部分，则返回./
 		const path = ( scope.path === '' ) ? LoaderUtils.extractUrlBase( url ) : scope.path;
 
 		const loader = new FileLoader( this.manager );
-		loader.setPath( scope.path );
-		loader.setResponseType( 'arraybuffer' );
-		loader.setRequestHeader( scope.requestHeader );
-		loader.setWithCredentials( scope.withCredentials );
 
+		// 这些属性都来自于父类Loader的默认值
+		loader.setPath( scope.path );			//设置路径
+		loader.setResponseType( 'arraybuffer' );  // 设置响应的数据类型为arraybuffer
+		loader.setRequestHeader( scope.requestHeader );  // 设置请求头
+		loader.setWithCredentials( scope.withCredentials );  // 设置是否携带cookie
+        
 		loader.load( url, function ( buffer ) {
 
 			try {
 
+				// 调用onLoad函数，并在其中调用parse方法来解析FBXLoader文件。
 				onLoad( scope.parse( buffer, path ) );
 
 			} catch ( e ) {
 
-				if ( onError ) {
+				if ( onError ) {	// 如果传递了onError回调函数，则调用onError函数
 
 					onError( e );
 
-				} else {
+				} else {            // 如果没有传递onError回调函数，则默认打印错误信息
 
 					console.error( e );
 
@@ -112,36 +124,42 @@ class FBXLoader extends Loader {
 
 	}
 
+	/** 
+	 * 解析读取为arraybuffer类型的FBX文件结构
+	*/
 	parse( FBXBuffer, path ) {
 
 		if ( isFbxFormatBinary( FBXBuffer ) ) {
-
+			// 如果buffer的格式符合FBX类型的二进制格式，则直接通过BinaryParser解析。
 			fbxTree = new BinaryParser().parse( FBXBuffer );
 
-		} else {
+		} else {  // 如果buffer的格式不符合FBX类型的二进制格式，则需要进行格式转换。
 
 			const FBXText = convertArrayBufferToString( FBXBuffer );
 
+			// 先转为ASCII格式，判断一下是不是FBX格式，如果不是，则抛出错误
 			if ( ! isFbxFormatASCII( FBXText ) ) {
 
 				throw new Error( 'THREE.FBXLoader: Unknown format.' );
 
 			}
-
+			// 转为ASCII格式，判断如果是FBX格式，则判断一下它的版本，相应做出提示。
 			if ( getFbxVersion( FBXText ) < 7000 ) {
 
 				throw new Error( 'THREE.FBXLoader: FBX version not supported, FileVersion: ' + getFbxVersion( FBXText ) );
 
 			}
 
+			// 通过TextParser解析ASCII格式的fbx文件流
 			fbxTree = new TextParser().parse( FBXText );
 
 		}
 
 		// console.log( fbxTree );
-
+		// XXX: 通过TextureLoader解析纹理
 		const textureLoader = new TextureLoader( this.manager ).setPath( this.resourcePath || path ).setCrossOrigin( this.crossOrigin );
 
+		// 将之前解析的fbxTree对象，传递给FBXTreeParser对象，进一步解析内容。
 		return new FBXTreeParser( textureLoader, this.manager ).parse( fbxTree );
 
 	}
@@ -149,6 +167,7 @@ class FBXLoader extends Loader {
 }
 
 // Parse the FBXTree object returned by the BinaryParser or TextParser and return a Group
+// 解析FBXTree对象，返回一个Group
 class FBXTreeParser {
 
 	constructor( textureLoader, manager ) {
